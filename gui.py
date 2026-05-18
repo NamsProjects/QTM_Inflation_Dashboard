@@ -58,7 +58,7 @@ SANS_TITLE = ("Georgia", 15, "bold")
 
 QUARTERS     = ["Q1", "Q2", "Q3", "Q4"]
 CURRENT_YEAR = datetime.now().year
-YEARS        = [str(y) for y in range(1990, CURRENT_YEAR + 1)]
+YEARS        = [str(y) for y in range(1959, CURRENT_YEAR + 1)]
 
 # Raw data tab column labels
 RAW_COL_LABELS = {
@@ -350,6 +350,24 @@ class QTMDashboard(tk.Tk):
         tk.Label(summary_bar, textvariable=self._qtm_summary_var,
                  font=MONO_SM, fg=AMBER, bg=BG4, anchor=tk.W).pack(side=tk.LEFT)
 
+        # Window-correlation strip: shows corr(QTM, CPI) at 1Q / 1Y / 5Y / 10Y horizons
+        window_bar = tk.Frame(tab_qtm, bg=BG3, pady=6, padx=14)
+        window_bar.pack(fill=tk.X)
+        tk.Label(window_bar, text="CORR BY WINDOW:",
+                 font=MONO_HD, fg=MUTED, bg=BG3).pack(side=tk.LEFT)
+
+        self._window_widgets = {}  # {periods: (value_label, n_label)}
+        for label_text, periods in [("1Q", 1), ("1Y", 4), ("5Y", 20), ("10Y", 40)]:
+            tk.Label(window_bar, text=f"   {label_text}",
+                     font=MONO_SM, fg=MUTED, bg=BG3).pack(side=tk.LEFT, padx=(10, 2))
+            val = tk.Label(window_bar, text="—",
+                           font=MONO_HD, fg=WHITE, bg=BG3, width=7, anchor=tk.W)
+            val.pack(side=tk.LEFT)
+            n_lbl = tk.Label(window_bar, text="",
+                             font=MONO_SM, fg=MUTED, bg=BG3, anchor=tk.W)
+            n_lbl.pack(side=tk.LEFT)
+            self._window_widgets[periods] = (val, n_lbl)
+
         self._tree_qtm = build_treeview(tab_qtm, QTM_COLS, QTM_COL_LABELS, col_width=175)
         self._show_placeholder(self._tree_qtm, QTM_COLS)
 
@@ -509,6 +527,63 @@ class QTMDashboard(tk.Tk):
                 f"({len(valid)} quarters)"
             )
 
+        self._update_window_correlations(self._raw_df)
+
+    def _update_window_correlations(self, raw_df):
+        """Compute and display correlation between QTM-predicted and actual CPI
+        inflation at 1Q, 1Y, 5Y, 10Y horizons (annualized growth rates)."""
+        if raw_df is None or raw_df.empty:
+            for val, n_lbl in self._window_widgets.values():
+                val.config(text="—", fg=WHITE)
+                n_lbl.config(text="")
+            return
+
+        needed = {"M2SL", "GDPC1", "CPIAUCSL"}
+        if not needed.issubset(raw_df.columns):
+            return
+
+        m2 = raw_df["M2SL"].astype(float)
+        y  = raw_df["GDPC1"].astype(float)
+        p  = raw_df["CPIAUCSL"].astype(float)
+
+        for periods, (val_lbl, n_lbl) in self._window_widgets.items():
+            if len(raw_df) <= periods + 1:
+                val_lbl.config(text="—", fg=MUTED)
+                n_lbl.config(text=" n/a")
+                continue
+
+            exponent = 4.0 / periods  # annualize
+            m2_g = (m2 / m2.shift(periods)) ** exponent - 1
+            y_g  = (y  / y.shift(periods))  ** exponent - 1
+            pi_pred   = m2_g - y_g
+            pi_actual = (p / p.shift(periods)) ** exponent - 1
+
+            paired = pd.concat({"pred": pi_pred, "actual": pi_actual}, axis=1).dropna()
+            n = len(paired)
+            if n < 3:
+                val_lbl.config(text="—", fg=MUTED)
+                n_lbl.config(text=f" (n={n})")
+                continue
+
+            r = paired["pred"].corr(paired["actual"])
+            if pd.isna(r):
+                val_lbl.config(text="—", fg=MUTED)
+            else:
+                color = self._corr_color(r)
+                val_lbl.config(text=f"{r:+.2f}", fg=color)
+            n_lbl.config(text=f" (n={n})")
+
+    @staticmethod
+    def _corr_color(r):
+        a = abs(r)
+        if a < 0.1:
+            return MUTED      # noise
+        if a < 0.3:
+            return WHITE      # weak
+        if a < 0.5:
+            return AMBER      # moderate
+        return GREEN          # strong
+
     # -----------------------------------------------------------------------
     # Event handlers
     # -----------------------------------------------------------------------
@@ -535,6 +610,9 @@ class QTMDashboard(tk.Tk):
         self._show_placeholder(self._tree_raw, list(SERIES.keys()))
         self._show_placeholder(self._tree_qtm, QTM_COLS)
         self._qtm_summary_var.set("Calculating…")
+        for val_lbl, n_lbl in self._window_widgets.values():
+            val_lbl.config(text="—", fg=WHITE)
+            n_lbl.config(text="")
 
         def _worker():
             try:
