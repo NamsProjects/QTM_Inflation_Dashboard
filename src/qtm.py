@@ -61,17 +61,15 @@ def compute(df: pd.DataFrame) -> pd.DataFrame:
     # Work on a clean copy with only the columns we need
     raw = df[["M2SL", "GDPC1", "CPIAUCSL"]].copy()
 
-    # Drop rows where any of the three inputs is NaN
-    raw = raw.dropna()
-
     if len(raw) < 2:
         raise ValueError("Need at least 2 quarters of complete data to compute growth rates.")
 
+    # Compute pct_change on each series BEFORE dropping NaN rows.
+    # Dropping NaN first would collapse non-consecutive quarters into adjacent
+    # rows, causing pct_change to silently span multiple quarters.
     result = pd.DataFrame(index=raw.index)
-
-    # QoQ % changes
-    result["M2_growth"]    = raw["M2SL"].pct_change()   * 100
-    result["RGDP_growth"]  = raw["GDPC1"].pct_change()  * 100
+    result["M2_growth"]     = raw["M2SL"].pct_change()     * 100
+    result["RGDP_growth"]   = raw["GDPC1"].pct_change()    * 100
     result["CPI_inflation"] = raw["CPIAUCSL"].pct_change() * 100
 
     # QTM predicted inflation: money growth minus real output growth
@@ -80,8 +78,14 @@ def compute(df: pd.DataFrame) -> pd.DataFrame:
     # Gap: how much QTM over/under-shoots actual CPI
     result["gap"] = result["QTM_inflation"] - result["CPI_inflation"]
 
-    # Drop the first row (all NaN from pct_change)
-    result = result.iloc[1:]
+    before = len(result)
+    result = result.dropna()
+    dropped = before - len(result)
+    if dropped > 0:
+        logger.info(
+            "Dropped %d rows with NaN values (first row from pct_change + any data gaps)",
+            dropped,
+        )
 
     logger.info(
         "QTM analysis complete | %d quarters | %s → %s",

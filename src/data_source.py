@@ -37,10 +37,12 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 #                    "mean"  – use period average         (price indices)
 # ---------------------------------------------------------------------------
 SERIES = {
-    "M2SL":     ("M2 Money Supply",           "monthly",    "last"),
+    # M2: quarterly mean matches GDP's implicit period-average (fixes timing mismatch vs end-of-quarter)
+    "M2SL":     ("M2 Money Supply",           "monthly",    "mean"),
     "GDP":      ("Nominal GDP",               "quarterly",  None),   # already quarterly
     "GDPDEF":   ("GDP Deflator (2017=100)",   "quarterly",  None),   # already quarterly
-    "CPIAUCSL": ("CPI All Urban Consumers",   "monthly",    "mean"),
+    # CPI: end-of-quarter value gives point-to-point comparison matching published BLS headline figures
+    "CPIAUCSL": ("CPI All Urban Consumers",   "monthly",    "last"),
     "GDPC1": ("Real GDP (Chained 2017$)", "quarterly", None),
 }
 
@@ -133,9 +135,13 @@ class DataSource:
     # ------------------------------------------------------------------
 
     def _cache_path(self, code: str, start: str, end: str) -> Path:
-        """Return a deterministic cache file path for this series + date range."""
+        """Return a deterministic cache file path for this series + date range.
+
+        end is truncated to year-month so the key doesn't change daily when
+        end defaults to today, preventing unbounded accumulation of stale files.
+        """
         safe_start = start.replace("-", "")
-        safe_end = end.replace("-", "")
+        safe_end = end[:7].replace("-", "")   # year-month only, e.g. "202606"
         return self._cache_dir / f"{code}_{safe_start}_{safe_end}.csv"
 
     def _fetch_one(

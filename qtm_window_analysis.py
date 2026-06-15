@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-PROJ = Path(r"C:\Users\namki\Documents\Projects\monetary_inflation_dashboard")
+PROJ = Path(__file__).parent
 sys.path.insert(0, str(PROJ))
 
 from src.config import Config  # noqa: E402
@@ -43,7 +43,7 @@ def fetch_quarterly(fred: Fred, code: str, method: str) -> pd.Series:
 
 
 def pct_change(s: pd.Series, periods: int) -> pd.Series:
-    """Annualized % change over `periods` quarters."""
+    """Annualized growth rate over `periods` quarters. Returns a fraction (e.g. 0.032), not a %."""
     years = periods / 4.0
     return (s / s.shift(periods)) ** (1.0 / years) - 1.0
 
@@ -55,7 +55,14 @@ def analyze(m2: pd.Series, rgdp: pd.Series, cpi: pd.Series,
     pi_actual = pct_change(cpi, periods)
 
     df = pd.concat({"pred": pi_pred, "actual": pi_actual}, axis=1).dropna()
-    non_overlap = df.iloc[::periods] if window_years >= 1 else df
+    if window_years >= 1:
+        # Step backward from the most recent observation so the selected rows
+        # are anchored to the latest data point rather than the (potentially
+        # non-calendar-aligned) first post-shift row.
+        indices = list(range(len(df) - 1, -1, -periods))[::-1]
+        non_overlap = df.iloc[indices]
+    else:
+        non_overlap = df
 
     return {
         "label": label,
@@ -74,9 +81,9 @@ def analyze(m2: pd.Series, rgdp: pd.Series, cpi: pd.Series,
 def main():
     fred = Fred(api_key=Config.FRED_API_KEY)
     print("Fetching FRED series via API...")
-    m2 = fetch_quarterly(fred, "M2SL", "last")
+    m2 = fetch_quarterly(fred, "M2SL", "mean")   # quarterly mean matches GDP's period-average
     rgdp = fetch_quarterly(fred, "GDPC1", "asis")
-    cpi = fetch_quarterly(fred, "CPIAUCSL", "mean")
+    cpi = fetch_quarterly(fred, "CPIAUCSL", "last")  # end-of-quarter matches BLS point-to-point
     print(f"  M2SL:     {m2.index.min().date()} -> {m2.index.max().date()}  ({len(m2)} obs)")
     print(f"  GDPC1:    {rgdp.index.min().date()} -> {rgdp.index.max().date()}  ({len(rgdp)} obs)")
     print(f"  CPIAUCSL: {cpi.index.min().date()} -> {cpi.index.max().date()}  ({len(cpi)} obs)")

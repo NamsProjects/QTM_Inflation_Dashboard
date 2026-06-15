@@ -57,5 +57,4 @@ class Config:
         """Get full path for a cache file."""
         return cls.CACHE_DIR / filename
 
-# Validate configuration on import
-Config.validate_keys()
+# Keys are validated lazily in DataSource.__init__ to avoid raising at import time.

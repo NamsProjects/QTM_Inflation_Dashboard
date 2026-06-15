@@ -21,7 +21,7 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 # Path setup
 # ---------------------------------------------------------------------------
-ROOT = Path(__file__).parent.parent  # project root, one level up from src/
+ROOT = Path(__file__).parent  # gui.py lives at the project root
 sys.path.insert(0, str(ROOT))
 
 try:
@@ -353,7 +353,7 @@ class QTMDashboard(tk.Tk):
         # Window-correlation strip: shows corr(QTM, CPI) at 1Q / 1Y / 5Y / 10Y horizons
         window_bar = tk.Frame(tab_qtm, bg=BG3, pady=6, padx=14)
         window_bar.pack(fill=tk.X)
-        tk.Label(window_bar, text="CORR BY WINDOW:",
+        tk.Label(window_bar, text="CORR BY WINDOW (annualized):",
                  font=MONO_HD, fg=MUTED, bg=BG3).pack(side=tk.LEFT)
 
         self._window_widgets = {}  # {periods: (value_label, n_label)}
@@ -547,7 +547,7 @@ class QTMDashboard(tk.Tk):
         p  = raw_df["CPIAUCSL"].astype(float)
 
         for periods, (val_lbl, n_lbl) in self._window_widgets.items():
-            if len(raw_df) <= periods + 1:
+            if len(raw_df) <= periods:  # need periods+1 rows for one valid pct_change result
                 val_lbl.config(text="—", fg=MUTED)
                 n_lbl.config(text=" n/a")
                 continue
